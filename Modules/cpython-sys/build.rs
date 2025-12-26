@@ -28,9 +28,10 @@ fn gil_disabled(srcdir: &Path, builddir: Option<&str>) -> bool {
     for base in candidates {
         let path = base.join("pyconfig.h");
         if let Ok(contents) = std::fs::read_to_string(&path)
-            && contents.contains("Py_GIL_DISABLED 1") {
-                return true;
-            }
+            && contents.contains("Py_GIL_DISABLED 1")
+        {
+            return true;
+        }
     }
     false
 }
