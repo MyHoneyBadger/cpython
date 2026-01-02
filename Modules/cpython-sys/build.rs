@@ -12,7 +12,8 @@ fn main() {
     if gil_disabled(srcdir, builddir.as_deref()) {
         println!("cargo:rustc-cfg=py_gil_disabled");
     }
-    generate_c_api_bindings(srcdir, builddir.as_deref(), out_path.as_path());
+    let target = env::var("TARGET").unwrap_or_default();
+    generate_c_api_bindings(srcdir, builddir.as_deref(), out_path.as_path(), &target);
     // TODO(emmatyping): generate bindings to the internal parser API
     // The parser includes things slightly differently, so we should generate
     // it's bindings independently
@@ -36,7 +37,7 @@ fn gil_disabled(srcdir: &Path, builddir: Option<&str>) -> bool {
     false
 }
 
-fn generate_c_api_bindings(srcdir: &Path, builddir: Option<&str>, out_path: &Path) {
+fn generate_c_api_bindings(srcdir: &Path, builddir: Option<&str>, out_path: &Path, target: &str) {
     let mut builder = bindgen::Builder::default().header("wrapper.h");
 
     // Always search the source dir and the public headers.
@@ -48,6 +49,21 @@ fn generate_c_api_bindings(srcdir: &Path, builddir: Option<&str>, out_path: &Pat
     }
     for dir in include_dirs {
         builder = builder.clang_arg(format!("-I{}", dir.display()));
+    }
+
+    // Set target triple for cross-compilation
+    if !target.is_empty() {
+        builder = builder.clang_arg(format!("--target={}", target));
+    }
+
+    // For Android targets, use the NDK sysroot if available
+    if target.contains("android") {
+        if let Ok(ndk_home) = env::var("ANDROID_NDK_HOME") {
+            let sysroot = PathBuf::from(&ndk_home).join("toolchains/llvm/prebuilt/linux-x86_64/sysroot");
+            if sysroot.exists() {
+                builder = builder.clang_arg(format!("--sysroot={}", sysroot.display()));
+            }
+        }
     }
 
     let bindings = builder
