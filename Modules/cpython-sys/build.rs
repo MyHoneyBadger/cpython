@@ -12,7 +12,8 @@ fn main() {
     if gil_disabled(srcdir, builddir.as_deref()) {
         println!("cargo:rustc-cfg=py_gil_disabled");
     }
-    generate_c_api_bindings(srcdir, builddir.as_deref(), out_path.as_path());
+    let target = env::var("TARGET").unwrap_or_default();
+    generate_c_api_bindings(srcdir, builddir.as_deref(), out_path.as_path(), &target);
     // TODO(emmatyping): generate bindings to the internal parser API
     // The parser includes things slightly differently, so we should generate
     // it's bindings independently
@@ -36,8 +37,16 @@ fn gil_disabled(srcdir: &Path, builddir: Option<&str>) -> bool {
     false
 }
 
-fn generate_c_api_bindings(srcdir: &Path, builddir: Option<&str>, out_path: &Path) {
+fn generate_c_api_bindings(srcdir: &Path, builddir: Option<&str>, out_path: &Path, target: &str) {
     let mut builder = bindgen::Builder::default().header("wrapper.h");
+
+    let host = env::var("HOST").unwrap_or_default();
+    let is_cross_compiling = !target.is_empty() && target != host;
+
+    // For cross-compilation, don't auto-detect host system include paths
+    if is_cross_compiling {
+        builder = builder.detect_include_paths(false);
+    }
 
     // Always search the source dir and the public headers.
     let mut include_dirs = vec![srcdir.to_path_buf(), srcdir.join("Include")];
@@ -48,6 +57,32 @@ fn generate_c_api_bindings(srcdir: &Path, builddir: Option<&str>, out_path: &Pat
     }
     for dir in include_dirs {
         builder = builder.clang_arg(format!("-I{}", dir.display()));
+    }
+
+    // Set target triple for cross-compilation
+    if !target.is_empty() {
+        builder = builder.clang_arg(format!("--target={}", target));
+    }
+
+    // Handle WASI SDK sysroot and clang includes
+    if target.contains("wasi") {
+        if let Ok(wasi_sdk) = env::var("WASI_SDK_PATH") {
+            let wasi_sdk_path = PathBuf::from(&wasi_sdk);
+            let sysroot = wasi_sdk_path.join("share/wasi-sysroot");
+            if sysroot.exists() {
+                builder = builder.clang_arg(format!("--sysroot={}", sysroot.display()));
+            }
+            // Add clang's built-in headers (stddef.h, etc.) from WASI SDK
+            if let Ok(entries) = std::fs::read_dir(wasi_sdk_path.join("lib/clang")) {
+                for entry in entries.flatten() {
+                    let clang_include = entry.path().join("include");
+                    if clang_include.exists() {
+                        builder = builder.clang_arg(format!("-I{}", clang_include.display()));
+                        break;
+                    }
+                }
+            }
+        }
     }
 
     let bindings = builder

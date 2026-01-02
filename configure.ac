@@ -4347,7 +4347,6 @@ else
       ;;
     wasm32-unknown-wasip1)
       CARGO_TARGET=wasm32-wasip1
-      export BINDGEN_EXTRA_CLANG_ARGS_wasm32_wasip1="--sysroot=/opt/wasi-sdk/share/wasi-sysroot"
       ;;  
     *)
       CARGO_TARGET="$host"
