@@ -62,6 +62,8 @@ fn generate_c_api_bindings(srcdir: &Path, builddir: Option<&str>, out_path: &Pat
 
     // Suppress all clang warnings (deprecation warnings, etc.)
     builder = builder.clang_arg("-w");
+    // Force C mode for CPython headers.
+    builder = builder.clang_arg("-x").clang_arg("c");
 
     // Tell clang the correct target triple for cross-compilation when we have
     // an LLVM-specific triple. Otherwise let bindgen translate Cargo's TARGET
@@ -80,6 +82,7 @@ fn generate_c_api_bindings(srcdir: &Path, builddir: Option<&str>, out_path: &Pat
     // - WASI: sysroot in CC, -D_WASI_EMULATED_SIGNAL in CFLAGS
     // - iOS: -isysroot in CPPFLAGS
     let mut have_sysroot = false;
+    let mut std_flag: Option<String> = None;
     for env_name in ["PY_CC", "PY_CPPFLAGS", "PY_CFLAGS"] {
         if let Ok(value) = env::var(env_name)
             && let Some(flags) = shlex::split(&value)
@@ -95,15 +98,33 @@ fn generate_c_api_bindings(srcdir: &Path, builddir: Option<&str>, out_path: &Pat
                     {
                         builder = builder.clang_arg(path);
                     }
+                } else if flag == "-std" {
+                    builder = builder.clang_arg(flag);
+                    if let Some(value) = iter.next() {
+                        builder = builder.clang_arg(value);
+                        std_flag = Some(value.to_string());
+                    }
                 } else if flag.starts_with("-I")
                     || flag.starts_with("-D")
                     || flag.starts_with("-std=")
                     || flag.starts_with("-isystem")
                 {
                     builder = builder.clang_arg(flag);
+                    if flag.starts_with("-std=") {
+                        std_flag = Some(flag.trim_start_matches("-std=").to_string());
+                    }
                 }
             }
         }
+    }
+    let needs_c11 = match std_flag.as_deref() {
+        None => true,
+        Some("c89" | "c90" | "c99" | "gnu89" | "gnu90" | "gnu99") => true,
+        _ => false,
+    };
+    if needs_c11 {
+        // Bindgen needs C11 for stdatomic.h (e.g. mimalloc); override older defaults.
+        builder = builder.clang_arg("-std=gnu11");
     }
 
     // WASI SDK: WASI_SDK_PATH is set by Tools/wasm/wasi/__main__.py.
