@@ -126,6 +126,17 @@ fn generate_c_api_bindings(srcdir: &Path, builddir: Option<&str>, out_path: &Pat
         // Bindgen needs C11 for stdatomic.h (e.g. mimalloc); override older defaults.
         builder = builder.clang_arg("-std=gnu11");
     }
+    // Bindgen parses headers only; force C11 atomics to be available even if
+    // the target's std headers disable them in freestanding mode.
+    builder = builder
+        .clang_arg("-U__STDC_NO_ATOMICS__")
+        .clang_arg("-D__STDC_NO_ATOMICS__=0")
+        .clang_arg("-D__STDC_HOSTED__=1");
+    // Avoid x86 intrinsic headers on non-x86 targets (they can error in clang's
+    // builtin headers when the target/sysroot doesn't match).
+    if !cargo_target.contains("x86_64") && !cargo_target.contains("i686") && !cargo_target.contains("x86") {
+        builder = builder.clang_arg("-U__SSE2__").clang_arg("-U__MMX__");
+    }
 
     // WASI SDK: WASI_SDK_PATH is set by Tools/wasm/wasi/__main__.py.
     // The sysroot is at $WASI_SDK_PATH/share/wasi-sysroot.
